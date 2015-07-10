@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"io/ioutil"
 	"path/filepath"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -126,23 +125,6 @@ func s3ListDir(prefix string) (objects []string, prefixes []string, err error) {
 	return objects, prefixes, nil
 }
 
-func s3GetObj(key string) ([]byte, error) {
-	params := s3.GetObjectInput{
-		Bucket: aws.String(s3Bucket),
-		Key:    aws.String(key),
-	}
-	resp, err := s3Client.GetObject(&params)
-	if err != nil {
-		return nil, err
-	}
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	resp.Body.Close()
-	return data, nil
-}
-
 func s3PutObj(key string, data []byte) error {
 	params := s3.PutObjectInput{
 		Bucket: aws.String(s3Bucket),
@@ -150,5 +132,14 @@ func s3PutObj(key string, data []byte) error {
 		Body:   bytes.NewReader(data),
 	}
 	_, err := s3Client.PutObject(&params)
+	return err
+}
+
+func s3RemoveObj(key string) error {
+	params := s3.DeleteObjectInput{
+		Bucket: aws.String(s3Bucket),
+		Key:    aws.String(key),
+	}
+	_, err := s3Client.DeleteObject(&params)
 	return err
 }

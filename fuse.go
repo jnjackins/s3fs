@@ -48,13 +48,22 @@ func (ctx s3fs) Attr() fuse.Attr {
 	dprintf("Attr: %v", ctx)
 	switch ctx.kind {
 	case tPrefix:
-		dprintf("Attr: type is directory")
-		return fuse.Attr{Mode: os.ModeDir | 0555}
+		dprintf("Attr: type: directory")
+		return fuse.Attr{
+			Mode: os.ModeDir | 0755,
+			Uid:  serverUid,
+			Gid:  serverGid,
+		}
 	case tObject:
-		dprintf("Attr: type is regular")
-		return fuse.Attr{Mode: 0444, Size: ctx.size}
+		dprintf("Attr: type: regular file")
+		return fuse.Attr{
+			Mode: 0644,
+			Size: ctx.size,
+			Uid:  serverUid,
+			Gid:  serverGid,
+		}
 	default:
-		dprintf("Attr: type is unsupported")
+		dprintf("Attr: type: unsupported")
 		return fuse.Attr{}
 	}
 }
@@ -67,6 +76,7 @@ func (ctx s3fs) Lookup(name string, intr fuse.Intr) (fuse.Node, fuse.Error) {
 	}
 	kind, obj, ok := s3Lookup(key)
 	if !ok {
+		dprintf("Lookup: returned ENOENT for %#v / %#v", ctx.key, name)
 		return nil, fuse.ENOENT
 	}
 	ctx.key = key
@@ -110,8 +120,45 @@ func (ctx s3fs) ReadAll(intr fuse.Intr) ([]byte, fuse.Error) {
 	defer ctx.body.Close()
 	buf, err := ioutil.ReadAll(ctx.body)
 	if err != nil {
-		dprintf("Read: error reading %#v: %v", ctx.key, err)
+		dprintf("ReadAll: error reading %#v: %v", ctx.key, err)
 		return nil, fuse.EIO
 	}
 	return buf, nil
+}
+
+func (ctx s3fs) Create(req *fuse.CreateRequest, res *fuse.CreateResponse, intr fuse.Intr) (fuse.Node, fuse.Handle, fuse.Error) {
+	dprintf("Create: %v (ctx.key = %#v)", req, ctx.key)
+	if ctx.key == "" {
+		ctx.key = req.Name
+	} else {
+		ctx.key += "/" + req.Name
+	}
+	if req.Mode&os.ModeDir > 0 {
+		ctx.kind = tPrefix
+	} else {
+		ctx.kind = tObject
+	}
+	return ctx, ctx, nil
+}
+
+func (ctx s3fs) Remove(req *fuse.RemoveRequest, intr fuse.Intr) fuse.Error {
+	dprintf("Remove: %v (ctx.key = %#v)", req, ctx.key)
+	key := ctx.key + "/" + req.Name
+	err := s3RemoveObj(key)
+	if err != nil {
+		dprintf("Remove: error removing %#v: %v", key, err)
+		return fuse.EIO
+	}
+	dprintf("Remove: successfully removed %#v", key)
+	return nil
+}
+
+func (ctx s3fs) WriteAll(buf []byte, intr fuse.Intr) fuse.Error {
+	dprintf("WriteAll: %v", ctx)
+	err := s3PutObj(ctx.key, buf)
+	if err != nil {
+		dprintf("WriteAll: error writing %#v: %v", ctx.key, err)
+		return fuse.EIO
+	}
+	return nil
 }
