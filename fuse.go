@@ -70,9 +70,11 @@ func (ctx s3fs) Attr() fuse.Attr {
 
 func (ctx s3fs) Lookup(name string, intr fuse.Intr) (fuse.Node, fuse.Error) {
 	dprintf("Lookup: %#v (ctx.key: %#v)", name, ctx.key)
-	key := ctx.key + "/" + name
+	var key string
 	if ctx.key == "" {
 		key = name
+	} else {
+		key = ctx.key + "/" + name
 	}
 	kind, obj, ok := s3Lookup(key)
 	if !ok {
@@ -143,7 +145,12 @@ func (ctx s3fs) Create(req *fuse.CreateRequest, res *fuse.CreateResponse, intr f
 
 func (ctx s3fs) Remove(req *fuse.RemoveRequest, intr fuse.Intr) fuse.Error {
 	dprintf("Remove: %v (ctx.key = %#v)", req, ctx.key)
-	key := ctx.key + "/" + req.Name
+	var key string
+	if ctx.key == "" {
+		key = req.Name
+	} else {
+		key = ctx.key + "/" + req.Name
+	}
 	err := s3RemoveObj(key)
 	if err != nil {
 		dprintf("Remove: error removing %#v: %v", key, err)
