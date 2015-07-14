@@ -34,7 +34,7 @@ func (ctx s3fs) String() string {
 	case tObject:
 		kind = "object"
 	}
-	return fmt.Sprintf("{key: %#v, kind: %s}", ctx.key, kind)
+	return fmt.Sprintf("[%#v (%s)]", ctx.key, kind)
 }
 
 func (ctx s3fs) Root() (fuse.Node, fuse.Error) {
@@ -119,12 +119,29 @@ func (ctx s3fs) ReadDir(intr fuse.Intr) ([]fuse.Dirent, fuse.Error) {
 
 func (ctx s3fs) ReadAll(intr fuse.Intr) ([]byte, fuse.Error) {
 	dprintf("ReadAll: %v", ctx)
+	if ctx.body == nil {
+		dprintf("ReadAll: %v has nil body, doing lookup", ctx)
+		root := ctx
+		root.key = "" // we need to lookup ctx.key from a root ctx
+		node, err := root.Lookup(ctx.key, intr)
+		if err != nil {
+			dprintf("ReadAll: %v: lookup failed: %v", ctx, err)
+			return nil, fuse.EIO
+		}
+		ctx = node.(s3fs)
+		if ctx.body == nil {
+			dprintf("ReadAll: %v: body still nil after lookup", ctx)
+			return nil, fuse.EIO
+		}
+		dprintf("ReadAll: lookup successful")
+	}
 	defer ctx.body.Close()
 	buf, err := ioutil.ReadAll(ctx.body)
 	if err != nil {
 		dprintf("ReadAll: error reading %#v: %v", ctx.key, err)
 		return nil, fuse.EIO
 	}
+	dprintf("ReadAll: read %d bytes", len(buf))
 	return buf, nil
 }
 
@@ -139,7 +156,13 @@ func (ctx s3fs) Create(req *fuse.CreateRequest, res *fuse.CreateResponse, intr f
 		ctx.kind = tPrefix
 	} else {
 		ctx.kind = tObject
+		err := s3PutObj(ctx.key, []byte{})
+		if err != nil {
+			dprintf("Create: error writing to %#v: %v", ctx.key, err)
+			return nil, nil, fuse.EIO
+		}
 	}
+	dprintf("Create: done creating %#v", req.Name)
 	return ctx, ctx, nil
 }
 
@@ -164,8 +187,9 @@ func (ctx s3fs) WriteAll(buf []byte, intr fuse.Intr) fuse.Error {
 	dprintf("WriteAll: %v", ctx)
 	err := s3PutObj(ctx.key, buf)
 	if err != nil {
-		dprintf("WriteAll: error writing %#v: %v", ctx.key, err)
+		dprintf("WriteAll: error writing to %#v: %v", ctx.key, err)
 		return fuse.EIO
 	}
+	dprintf("WriteAll: done writing to %#v", ctx.key)
 	return nil
 }
